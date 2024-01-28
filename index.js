@@ -1,10 +1,13 @@
 const express = require('express')
 const app = express()
 const AWS = require("aws-sdk");
+const mime = require("mime-types");
 const s3 = new AWS.S3()
-const bodyParser = require('body-parser');
+//const bodyParser = require('body-parser');
 
-app.use(bodyParser.json())
+//app.use(bodyParser.json());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // curl -i https://some-app.cyclic.app/myFile.txt
 app.get('*', async (req,res) => {
@@ -17,8 +20,13 @@ app.get('*', async (req,res) => {
       Key: filename,
     }).promise()
 
+//    console.log(s3File);
+    const contentType = mime.lookup(filename);
+    const body = contentType.match(/^text\//) ? s3File.Body.toString() : s3File.Body;
+
     res.set('Content-type', s3File.ContentType)
-    res.send(s3File.Body.toString()).end()
+    res.set('CacheControl', 'no-cache');
+    res.send(body).end()
   } catch (error) {
     if (error.code === 'NoSuchKey') {
       console.log(`No such key ${filename}`)
@@ -36,11 +44,17 @@ app.put('*', async (req,res) => {
   let filename = req.path.slice(1)
 
   console.log(typeof req.body)
+  console.log(express.json(req.body));
+  console.log(filename);
+  const contentType = mime.lookup(filename);
 
   await s3.putObject({
     Body: JSON.stringify(req.body),
-    Bucket: process.env.BUCKET,
+//    Body: contentType.match(/^text\//) ? req.body.toString() : req.body,
+    Bucket: process.env.CYCLIC_BUCKET_NAME,
+//    Bucket: process.env.BUCKET,
     Key: filename,
+    ContentType: contentType,
   }).promise()
 
   res.set('Content-type', 'text/plain')
