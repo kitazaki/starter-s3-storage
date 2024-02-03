@@ -1,4 +1,6 @@
 const express = require('express')
+const multer = require('multer')
+const multerS3 = require('multer-s3')
 const app = express()
 const AWS = require("aws-sdk");
 const mime = require("mime-types");
@@ -9,6 +11,7 @@ const s3 = new AWS.S3()
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+
 // curl -i https://some-app.cyclic.app/myFile.txt
 app.get('*', async (req,res) => {
   let filename = req.path.slice(1)
@@ -17,14 +20,15 @@ app.get('*', async (req,res) => {
     let s3File = await s3.getObject({
       Bucket: process.env.CYCLIC_BUCKET_NAME,
 //      Bucket: process.env.BUCKET,
-      Key: filename,
+      Key: filename
     }).promise()
 
 //    console.log(s3File);
     const contentType = mime.lookup(filename);
     const body = contentType.match(/^text\//) ? s3File.Body.toString() : s3File.Body;
 
-    res.set('Content-type', s3File.ContentType)
+    res.set('Content-type', contentType)
+//    res.set('Content-type', s3File.ContentType)
     res.set('CacheControl', 'no-cache');
     res.send(body).end()
   } catch (error) {
@@ -61,12 +65,38 @@ app.put('*', async (req,res) => {
   res.send('ok').end()
 })
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // limit file size to 5MB
+  },
+});
+
+// curl -v -k -X POST -F "image=@neko.jpg" -F"type=image/jpeg" -F"device=atomcam" https://some-app.cyclic.app/
+app.post('*', upload.single('image'), async (req,res) => {
+  const params = {
+    Bucket: process.env.CYCLIC_BUCKET_NAME,
+    Key: 'neko.jpg',
+    Body: req.file.buffer,
+  };
+  s3.upload(params, (err, data) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).send('Error uploading file');
+    }
+    res.set('Content-type', 'text/plain')
+    res.send('ok').end()
+  });
+})
+
+
 // curl -i -XDELETE https://some-app.cyclic.app/myFile.txt
 app.delete('*', async (req,res) => {
   let filename = req.path.slice(1)
 
   await s3.deleteObject({
-    Bucket: process.env.BUCKET,
+    Bucket: process.env.CYCLIC_BUCKET_NAME,
+//    Bucket: process.env.BUCKET,
     Key: filename,
   }).promise()
 
